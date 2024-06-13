@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Upload and Process</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            text-align: center;
+            padding: 50px;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            display: inline-block;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        input[type="file"] {
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        p {
+            margin-top: 20px;
+        }
+
+        img {
+            margin-top: 20px;
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Upload and Process Image</h1>
+        <input type="file" id="fileInput" accept="image/*">
+        <button id="uploadButton">Upload and Process</button>
+        <p id="status"></p>
+        <img id="resultImage" style="display:none;" alt="Processed Image">
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.js"></script>
+    <script>
+        document.getElementById('uploadButton').addEventListener('click', async () => {
+            const fileInput = document.getElementById('fileInput');
+            const status = document.getElementById('status');
+            const resultImage = document.getElementById('resultImage');
+
+            if (!fileInput.files.length) {
+                alert('Please select an image file first.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = async () => {
+                try {
+                    const arrayBuffer = reader.result;
+                    const md5Hash = CryptoJS.MD5(CryptoJS.enc.Latin1.parse(reader.result)).toString(CryptoJS.enc.Base64);
+
+                    status.textContent = 'Submitting image...';
+
+                    const response = await fetch('https://developer.remini.ai/api/tasks', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer iOYXdNDv9VgfEeLRIfe7VilQCJciGbVcm6h5yy1qpIIEqZtD`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            tools: [
+                                { type: "face_enhance", mode: "beautify" },
+                                { type: "background_enhance", mode: "base" }
+                            ],
+                            image_md5: md5Hash,
+                            image_content_type: file.type,
+                            output_content_type: 'image/jpeg'
+                        })
+                    });
+
+                    const data = await response.json();
+                    const { task_id, upload_url, upload_headers } = data;
+
+                    status.textContent = 'Uploading image...';
+
+                    await fetch(upload_url, {
+                        method: 'PUT',
+                        headers: upload_headers,
+                        body: new Blob([arrayBuffer], { type: file.type })
+                    });
+
+                    status.textContent = 'Processing image...';
+
+                    let result;
+                    for (let i = 0; i < 50; i++) {
+                        const taskResponse = await fetch(`https://developer.remini.ai/api/tasks/${task_id}`, {
+                            headers: { 'Authorization': `Bearer iOYXdNDv9VgfEeLRIfe7VilQCJciGbVcm6h5yy1qpIIEqZtD` }
+                        });
+
+                        const taskData = await taskResponse.json();
+
+                        if (taskData.status === 'completed') {
+                            result = taskData.result.output_url;
+                            break;
+                        } else if (taskData.status !== 'processing') {
+                            throw new Error('Unexpected status: ' + taskData.status);
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+
+                    if (result) {
+                        status.textContent = 'Processing completed.';
+                        resultImage.src = result;
+                        resultImage.style.display = 'block';
+                    } else {
+                        throw new Error('Timeout reached!');
+                    }
+
+                } catch (error) {
+                    status.textContent = 'Error: ' + error.message;
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
